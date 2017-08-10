@@ -202,12 +202,13 @@ class processor(object):
 
 class moose_inventory(object):
     def __init__(self):
-        self.topdirs = [ ('/drives/E/%d' % i) for i in xrange(10) ]
+        suffixes = [ '_chime_beamformed', '_vdif_assembler' ]
+        self.topdirs = [ ('/drives/G/%d' % i) for i in xrange(10) ]
         self.subdirs = set()
 
         for t in self.topdirs:
             for s in os.listdir(t):
-                if not s.endswith('_chime_beamformed'):
+                if not any(s.endswith(suffix) for suffix in suffixes):
                     continue
                 if len(os.listdir(os.path.join(t,s))) == 0:
                     continue   # skip empty "acquisitions"
@@ -300,6 +301,8 @@ except:
 
 
 class python_waterfall_plotter(processor):
+    """FIXME this should use the downsampled_intensity helper class, but it hasn't been cythonized yet!"""
+
     def __init__(self, outdir):
         self.outdir = outdir
         self.imgdir = os.path.join(outdir, 'img')

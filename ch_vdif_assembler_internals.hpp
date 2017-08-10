@@ -23,6 +23,17 @@ namespace ch_vdif_assembler {
 //
 // Miscellaneous helper routines
 
+inline bool is_power_of_two(int n)
+{
+    xassert(n >= 1);
+    return (n & (n-1)) == 0;
+}
+
+inline int pow2(int n)
+{
+    xassert(n >= 0 && n <= 30);
+    return 1 << n;
+}
 
 inline double time_diff(const struct timeval &tv1, const struct timeval &tv2)
 {
@@ -63,6 +74,11 @@ inline void deadlock()
     pthread_cond_wait(&cond, &mutex);
 }
 
+template<typename T, typename... Args>
+std::unique_ptr<T> make_unique(Args&& ...args)
+{
+    return std::unique_ptr<T>(new T(std::forward<Args>(args)...));
+}
 
 extern std::string make_dataset_name();
 extern std::string make_data_dir(const std::string &dataset_name, int disk_id);

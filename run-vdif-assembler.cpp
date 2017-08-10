@@ -8,23 +8,30 @@ using namespace ch_vdif_assembler;
 static void usage()
 {
     cerr << "Usage: run-vdif-assembler [FLAGS]\n"
-	 << "where FLAGS include the following\n"
-	 << "    -w waterfall_plot_outdir           to make waterfall plots\n"
-	 << "    -r rfi_histogram_outfile.hdf5      to make rfi histograms\n"
-	 << "    -R rfi_histogram_outfile.hdf5      to make rfi histograms with a reference implementation\n"
-	 << "    -f file_list.txt                   to run on a disk capture\n"
+	 << "\n"
+	 << "Frequently-used FLAGS are as follows:\n"
 	 << "    -n                                 to run on a real-time network capture\n"
-	 << "    -s                                 to run on a simulated network capture (6.4 Gbps, 60 sec)\n"
-	 << "    -S num_seconds                     to run on a simulated network capture (6.4 Gpbs, specified duration)\n"
+	 << "    -f file_list.txt                   to run on previously captured high-speed baseband data\n"
+	 << "    -d                                 to capture high-speed baseband data and save to disk\n"
+	 << "    -i acqdir                          to save intensity data in hdf5 format (e.g. for FRB search)\n"
+	 << "    -w waterfall_plot_outdir           to make waterfall plots\n"
 	 << "    -t                                 to run in \"timing mode\": reported running time will be determined by the slowest thread\n"
 	 << "    -T num_chunks                      to run in timing mode for specified chunk count (default is 128)\n"
-	 << "    -u                                 to run a unit test stream/processor pair which compares the fast assembler to a reference implementation\n"
-	 << "    -d                                 to save stream on disk (will no-op if already running on a disk capture)\n"
-	 << "    -m                                 to run a concurrent \"mischief thread\" which memcpy's between two 0.5 GB buffers\n"
 	 << "\n"
-	 << "You may find the script show-moose-acqusitions.py useful for making file lists\n"
+	 << "Infrequently-used FLAGS:\n"
+	 << "    -r rfi_histogram_outfile.hdf5      to make rfi histograms\n"
+	 << "    -R rfi_histogram_outfile.hdf5      to make rfi histograms with a reference implementation\n"
+	 << "    -s                                 to run on a simulated network capture (6.4 Gbps, 60 sec)\n"
+	 << "    -S num_seconds                     to run on a simulated network capture (6.4 Gpbs, specified duration)\n"
+	 << "    -u                                 to run a unit-testing stream/processor pair which compares the fast assembler to a reference implementation\n"
+	 << "    -m                                 to run a concurrent \"mischief thread\" which memcpy's between two 0.5 GB buffers (to diagnose memory bandwidth bottlenecks)\n"
 	 << "\n"
-	 << "Suggested usage:\n"
+	 << "You may find the script show-moose-acqusitions.py useful for making file lists.  Example usage of this script:\n"
+	 << "\n"
+	 << "    # This will show a list of all acquistions on moose (at DRAO)\n"
+	 << "    show-moose-acquisitions.py\n"
+	 << "\n"
+	 << "    # Here, 41537 is an arbitrary substring identifying one of the acquisitions\n"
 	 << "    show-moose-acquisitions.py 41537 > filelist_41537.txt\n"
 	 << "    run-vdif-assembler -w waterfall_41537 -f filelist_41537.txt\n"
 	 << "    index-vdif-waterfalls.py waterfall_41537\n"
@@ -88,6 +95,7 @@ int main(int argc, char **argv)
     bool write_to_disk = false;
     bool mischief_flag = false;
     shared_ptr<vdif_stream> stream;
+    shared_ptr<vdif_processor> intensity_beam;
     shared_ptr<vdif_processor> waterfall_plotter;
     shared_ptr<vdif_processor> rfi_histogrammer;
     vector<shared_ptr<vdif_processor> > processors;
@@ -164,6 +172,15 @@ int main(int argc, char **argv)
 	    usage();
 
 	const char *positional_arg = argv[pos+1];
+
+	if (cs == 'i') {
+	    if (intensity_beam)
+		usage();
+	    intensity_beam = make_intensity_beam(positional_arg);
+	    processors.push_back(intensity_beam);
+	    pos += 2;
+	    continue;
+	}
 
 	if (cs == 'f') {
 	    if (stream)

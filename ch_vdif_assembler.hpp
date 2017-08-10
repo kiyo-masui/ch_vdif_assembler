@@ -20,7 +20,7 @@
 //      software may change soon, but for now there are some flags in the
 //      assembler which may help.
 //
-// To use this libarary, you:
+// To use this library, you:
 //
 //   - Construct an object of type vdif_assembler, which implements some
 //     generic logic for handling the above nuisance issues.
@@ -103,18 +103,21 @@ namespace ch_vdif_assembler {
 // -------------------------------------------------------------------------------------------------
 //
 // Constants
+//
+// Note: dt_fpga must be kept in sync with rf_pipelines::chime_seconds_per_fpga_count (see discussion in rf_pipelines.hpp)
 
 
 namespace constants {
-    static const int chime_nfreq = 1024;
-    static const int header_nbytes = 32;
-    static const int timestamps_per_packet = 625;
-    static const int timestamps_per_frame = 1 << 23;    // cadence of noise source
-    static const int packet_nbytes = 5032;              // = header_nbytes + 8 * timestamps_per_packet
-    static const int num_disks = 10;
-    static const int default_abuf_size = 4;
-    static const int default_assembler_nt = 65536;
-    static const int cache_line_size = 64;
+    static constexpr int chime_nfreq = 1024;
+    static constexpr int header_nbytes = 32;
+    static constexpr int timestamps_per_packet = 625;
+    static constexpr int timestamps_per_frame = 1 << 23;    // cadence of noise source
+    static constexpr int packet_nbytes = 5032;              // = header_nbytes + 8 * timestamps_per_packet
+    static constexpr int num_disks = 10;
+    static constexpr int default_abuf_size = 4;
+    static constexpr int default_assembler_nt = 65536;
+    static constexpr int cache_line_size = 64;
+    static constexpr double dt_fpga = 2.56e-6;              // seconds per FPGA count
 };
 
 
@@ -153,6 +156,8 @@ struct assembler_nerve_center;
 
 // Creates directory, but doesn't throw an exception if it already exists
 extern void xmkdir(const std::string &dirname);
+
+extern bool is_empty_dir(const std::string &dirname);
 
 template<typename T>
 inline std::string to_string(const T &x)
@@ -294,6 +299,8 @@ struct vdif_processor : noncopyable {
 //
 std::shared_ptr<vdif_processor> make_waterfall_plotter(const std::string &outdir, bool is_critical=false);
 
+std::shared_ptr<vdif_processor> make_intensity_beam(const std::string &acqdir);
+
 std::shared_ptr<vdif_processor> make_rfi_histogrammer(const std::string &output_hdf5_filename, bool is_critical=false, bool ref_flag=false);
 
 
@@ -342,6 +349,10 @@ std::shared_ptr<vdif_processor> make_rfi_histogrammer(const std::string &output_
 //
 // WARNING 4: For real-time network captures, assembly language kernels will probably
 // be necessary, feel free to email me if you need one!
+//
+// A final note: for processors which only need to use downsampled intensity data
+// (not high-speed baseband data) the simplest approach is to use the helper class
+// downsampled_intensity, see below!
 
 
 struct assembled_chunk : noncopyable {
@@ -350,6 +361,9 @@ struct assembled_chunk : noncopyable {
     //
     // Offset-encoded raw data; array of shape (constants::chime_nfreq, 2, nt) 
     // This data is read simultaneously by multiple threads, so don't modify it!
+    //
+    // "Invalid" entries, e.g. data which never arrived due to dead correlator
+    // nodes or dropped packets, are represented by (uint8_t)0.
     //
     const uint8_t *const buf;
 
@@ -366,7 +380,7 @@ struct assembled_chunk : noncopyable {
     // These methods are a little slow and intended for unit testing
     bool is_zero() const;
     bool is_equal(const assembled_chunk &a) const;
-    
+
     //
     // Should probably never be used in "production" code (an assembly language kernel will
     // probably be necessary) but useful during development.
@@ -427,6 +441,7 @@ struct assembled_chunk : noncopyable {
 	    }
 	}
     }
+
     //
     // This kernel fills two shape-(nfreq,2,nt) arrays:
     //   vis: real auto correlations, with missing data represented by zeros
@@ -452,6 +467,46 @@ struct assembled_chunk : noncopyable {
 	    }
 	}
     }	
+
+    // also intended for testing
+    static std::shared_ptr<assembled_chunk> make_random(const std::shared_ptr<assembled_chunk_pool> &pool, int64_t min_allowed_t0);
+};
+
+
+// -------------------------------------------------------------------------------------------------
+//
+// A helper class for vdif_processors which process downsampled intensity data rather than high-speed
+// baseband.  Rather than handle the assembled_chunk directly, the vdif_processor can pass it to
+// downsampled_intensity::process_chunk(), and fill a buffer containing all downsampled intensities
+// derived from the assembled_chunk.
+
+
+struct downsampled_intensity {
+    const int nt_downsample;  // downsampling factor between baseband and intensity
+    const double dt_sample;   // downsampled sample length, int seconds
+
+    bool initialized;
+    int64_t initial_t0;       // downsampled
+    int64_t curr_chunk_t0;    // downsampled
+    int64_t curr_chunk_nt;    // downsampled
+
+    ssize_t nt_alloc;         // must be at least curr_chunk_nt
+    std::vector<float> intensity_buf;
+    std::vector<float> weights_buf;
+
+    downsampled_intensity(int nt_downsample);
+
+    //
+    // When process_chunk() returns, the following members of 'struct downsampled_intensity' will be initialized
+    //    curr_chunk_t0
+    //    curr_chunk_nt
+    //    intensity_buf     shape (constants::chime_nfreq, 2, curr_chunk_nt)   note that the stride is curr_chunk_nt, not nt_alloc
+    //    weights_buf       shape (constants::chime_nfreq, 2, curr_chunk_nt)
+    //
+    void process_chunk(const std::shared_ptr<assembled_chunk> &a);
+    
+    // A slow reference version of process_chunk(), only used for testing
+    void process_chunk_reference(const std::shared_ptr<assembled_chunk> &a);
 };
 
 

@@ -9,15 +9,69 @@
 
 include Makefile.local
 
-INCFILES=ch_vdif_assembler.hpp ch_vdif_assembler_internals.hpp ch_vdif_assembler_kernels.hpp
+ifndef CPP
+$(error Fatal: Makefile.local must define CPP variable)
+endif
+
+ifndef LIBDIR
+$(error Fatal: Makefile.local must define LIBDIR variable)
+endif
+
+ifndef INCDIR
+$(error Fatal: Makefile.local must define INCDIR variable)
+endif
+
+ifndef BINDIR
+$(error Fatal: Makefile.local must define BINDIR variable)
+endif
+
+ifndef PYDIR
+$(error Fatal: Makefile.local must define PYDIR variable)
+endif
+
+
+####################################################################################################
+
+
 BINFILES=run-vdif-assembler
 LIBFILES=libch_vdif_assembler.so
 LIBCYTHON=ch_vdif_assembler_cython.so
 PYMODULES=ch_vdif_assembler.py
 SCRIPTS=show-moose-acquisitions.py index_vdif_waterfalls.py
-TESTBINFILES=test-timestamp-unwrapper test-kernels time-kernels peek-at-kernels
+TESTBINFILES=test-timestamp-unwrapper test-kernels test-downsampled-intensity time-kernels peek-at-kernels
 
-OFILES=assembler_nerve_center.o assembler_thread.o disk_reader_thread.o disk_writer_thread.o misc.o network_thread.o processing_thread.o rfi_histogrammer.o sim_thread.o timing_thread.o unit_testing_thread.o waterfall_plotter.o
+INCFILES=ch_vdif_assembler.hpp \
+	ch_vdif_assembler_internals.hpp \
+	ch_vdif_assembler_kernels.hpp \
+	ch_vdif_assembler_dspsr.hpp
+
+OFILES=assembler_nerve_center.o \
+	assembler_thread.o \
+	disk_reader_thread.o \
+	disk_writer_thread.o \
+	downsampled_intensity.o \
+	dspsr_handle.o \
+	intensity_beam.o \
+	misc.o \
+	network_thread.o \
+	processing_thread.o \
+	rfi_histogrammer.o \
+	sim_thread.o \
+	timing_thread.o \
+	unit_testing_thread.o \
+	waterfall_plotter.o
+
+LIBS=
+
+ifeq ($(HAVE_CH_FRB_IO),y)
+	CPP += -DHAVE_CH_FRB_IO
+        LIBS += -lch_frb_io
+endif
+
+LIBS += -lhdf5 -lpng
+
+
+####################################################################################################
 
 
 all: $(BINFILES) $(LIBFILES) $(LIBCYTHON) $(TESTBINFILES)
@@ -34,16 +88,19 @@ libch_vdif_assembler.so: $(OFILES)
 	$(CPP) -o $@ -shared $^
 
 ch_vdif_assembler_cython.so: ch_vdif_assembler_cython.cpp libch_vdif_assembler.so
-	$(CPP) -shared -o $@ $< -lch_vdif_assembler -lhdf5 -lpng
+	$(CPP) -shared -o $@ $< -lch_vdif_assembler $(LIBS)
 
 run-vdif-assembler: run-vdif-assembler.o libch_vdif_assembler.so
-	$(CPP) -o $@ $< -lch_vdif_assembler -lhdf5 -lpng
+	$(CPP) -o $@ $< -lch_vdif_assembler $(LIBS)
 
 test-timestamp-unwrapper: test-timestamp-unwrapper.cpp ch_vdif_assembler_internals.hpp
 	$(CPP) -o $@ $<
 
 test-kernels: test-kernels.cpp ch_vdif_assembler_kernels.hpp
 	$(CPP) -o $@ $<
+
+test-downsampled-intensity: test-downsampled-intensity.cpp ch_vdif_assembler_internals.hpp libch_vdif_assembler.so
+	$(CPP) -o $@ $< -lch_vdif_assembler $(LIBS)
 
 time-kernels: time-kernels.cpp ch_vdif_assembler_kernels.hpp
 	$(CPP) -o $@ $<
@@ -55,6 +112,7 @@ test: $(TESTBINFILES)
 	for f in $(TESTBINFILES); do ./$$f; done
 
 install: $(INCFILES) $(BINFILES) $(LIBFILES) $(LIBCYTHON)
+	mkdir -p $(INCDIR) $(LIBDIR) $(BINDIR) $(PYDIR)
 	cp -f $(INCFILES) $(INCDIR)/
 	cp -f $(LIBFILES) $(LIBDIR)/
 	cp -f $(BINFILES) $(SCRIPTS) $(BINDIR)/
